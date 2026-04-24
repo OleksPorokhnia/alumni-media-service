@@ -1,25 +1,26 @@
 package com.alex.project.controller;
 
-import com.alex.project.dto.UrlRequest;
+import com.alex.project.dto.response.PresignedUrlInfo;
 import com.alex.project.service.ImageService;
+import com.alex.project.service.PresignedUrlService;
 import io.quarkus.security.Authenticated;
 import jakarta.inject.Inject;
-import jakarta.ws.rs.Consumes;
-import jakarta.ws.rs.POST;
-import jakarta.ws.rs.Path;
-import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.MediaType;
 import org.jboss.resteasy.reactive.RestForm;
 import org.jboss.resteasy.reactive.multipart.FileUpload;
-import org.jose4j.json.internal.json_simple.JSONArray;
 
-import java.util.Map;
+import javax.print.attribute.standard.Media;
+import java.util.List;
 
 @Path("/images")
 public class ImageController {
 
     @Inject
     ImageService storageService;
+
+    @Inject
+    PresignedUrlService presignedUrlService;
 
     @POST
     @Consumes(MediaType.MULTIPART_FORM_DATA)
@@ -29,11 +30,20 @@ public class ImageController {
         return storageService.photoUpload(file, "profile");
     }
 
+    @GET
+    @Produces(MediaType.APPLICATION_JSON)
+    @Path("/getPresigned/{key}")
+    @Authenticated
+    public PresignedUrlInfo getPresignedUrl(@PathParam("key") String key){
+        return presignedUrlService.getPresignedUrl(key);
+    }
+
     @POST
     @Produces(MediaType.APPLICATION_JSON)
-    @Path("/getPresigned")
-    public String getPresignedUrl(UrlRequest key){
-        return storageService.createPresignedUrl(key.key());
+    @Path("/getPresigned/batch")
+    @Authenticated
+    public List<PresignedUrlInfo> getPresignedUrls(List<String> keys){
+        return presignedUrlService.getPresignedUrls(keys);
     }
 
 }
