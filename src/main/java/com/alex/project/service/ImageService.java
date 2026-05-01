@@ -1,39 +1,30 @@
 package com.alex.project.service;
 
-import com.alex.project.dto.response.BatchUrlResponse;
-import io.smallrye.jwt.auth.principal.JWTParser;
+import com.alex.project.dto.response.PresignedUrlInfo;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.eclipse.microprofile.jwt.JsonWebToken;
-import org.eclipse.microprofile.rest.client.inject.RestClient;
 import org.jboss.resteasy.reactive.multipart.FileUpload;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
+import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
+import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
-import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 import software.amazon.awssdk.services.s3.presigner.model.GetObjectPresignRequest;
 import software.amazon.awssdk.services.s3.presigner.model.PresignedGetObjectRequest;
-import software.amazon.awssdk.utils.IoUtils;
 
-import java.io.ByteArrayOutputStream;
 import java.io.File;
-import java.io.IOException;
-import java.io.InputStream;
-import java.net.HttpURLConnection;
-import java.net.URL;
+import java.nio.file.Path;
 import java.time.Duration;
-import java.util.List;
-import java.util.Map;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
 @ApplicationScoped
 public class ImageService {
@@ -47,37 +38,27 @@ public class ImageService {
     @ConfigProperty(name = "quarkus.s3.aws.region")
     String region;
 
-
     @ConfigProperty(name = "quarkus.s3.aws.credentials.static-provider.access-key-id")
     String accessKey;
 
     @ConfigProperty(name = "quarkus.s3.aws.credentials.static-provider.secret-access-key")
     String secretAccessKey;
 
-    private S3Presigner presigner;
-
+    private static final String BUCKET = "alumni-media-service-s3-bucket";
 
     @PostConstruct
-    void init(){
+    void init() {
         AwsBasicCredentials credentials = AwsBasicCredentials.create(accessKey, secretAccessKey);
-
-        this.presigner = S3Presigner.builder()
+        this.s3Client = S3Client.builder()
                 .region(Region.of(region))
                 .credentialsProvider(StaticCredentialsProvider.create(credentials))
                 .build();
     }
 
-    @PreDestroy
-    void destroy() {
-        presigner.close();
-    }
-
-    private static final String BUCKET = "alumni-media-service-s3-bucket";
-
     public String photoUpload(FileUpload fileUpload, String type) {
 
         String extension = getExtension(fileUpload.fileName());
-        String key = type + "/" + UUID.randomUUID() + "." + extension;
+        String key = type + "/" + jwt.claim("userid") + "." + extension;
 
         File file = fileUpload.uploadedFile().toFile();
 
@@ -92,31 +73,28 @@ public class ImageService {
         return key;
     }
 
-    public BatchUrlResponse getPresignedUrls(List<String> urls){
-        Map<String, String> result = urls.stream()
-                .collect(Collectors.toMap(
-                        key -> key,
-                        this::createPresignedUrl
-                ));
+    public String photoUpload(Path filePath, String contentType, String type) {
 
-        return new BatchUrlResponse(result);
+        String key = type + "/" + jwt.claim("userid") + ".webp";
+
+        PutObjectRequest request = PutObjectRequest.builder()
+                .bucket(BUCKET)
+                .key(key)
+                .contentType(contentType)
+                .build();
+
+        s3Client.putObject(request, RequestBody.fromFile(filePath.toFile()));
+
+        return key;
     }
 
-    public String createPresignedUrl(String keyName){
-            GetObjectRequest objectRequest = GetObjectRequest.builder()
-                    .bucket(BUCKET)
-                    .key(keyName)
-                    .build();
+    public ResponseInputStream<GetObjectResponse> getPhoto(String key){
+        GetObjectRequest getObjectRequest = GetObjectRequest.builder()
+                .bucket(BUCKET)
+                .key(key)
+                .build();
 
-            GetObjectPresignRequest presignRequest = GetObjectPresignRequest.builder()
-                    .signatureDuration(Duration.ofMinutes(20))
-                    .getObjectRequest(objectRequest)
-                    .build();
-
-
-            PresignedGetObjectRequest presignedGetObjectRequest = presigner.presignGetObject(presignRequest);
-
-            return presignedGetObjectRequest.url().toExternalForm();
+        return s3Client.getObject(getObjectRequest);
     }
 
     private String getExtension(String filename) {

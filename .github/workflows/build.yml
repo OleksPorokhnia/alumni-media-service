@@ -2,7 +2,7 @@ name: Build
 
 on:
   push:
-    branches: [ "master" ]
+    branches: [ "main" ]
 
 jobs:
   build:
@@ -20,6 +20,9 @@ jobs:
         with:
           java-version: '21'
           distribution: 'temurin'
+
+      - name: Make mvnw executable
+        run: chmod +x mvnw
 
       - name: Build project
         run: ./mvnw clean package
