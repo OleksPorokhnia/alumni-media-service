@@ -4,7 +4,7 @@ import java.time.Instant;
 
 public record PresignedUrlInfo(String key, String url, Instant expireAt) {
 
-    public boolean isExpired(){
+    public boolean isExpired() {
         Instant now = Instant.now();
 
         long bufferSeconds = 60;

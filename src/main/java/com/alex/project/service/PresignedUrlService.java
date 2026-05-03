@@ -1,6 +1,7 @@
 package com.alex.project.service;
 
 import com.alex.project.dto.response.PresignedUrlInfo;
+import io.quarkus.scheduler.Scheduled;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -14,7 +15,6 @@ import software.amazon.awssdk.services.s3.presigner.model.GetObjectPresignReques
 import software.amazon.awssdk.services.s3.presigner.model.PresignedGetObjectRequest;
 
 import java.time.Duration;
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -25,19 +25,14 @@ import java.util.concurrent.ConcurrentHashMap;
 public class PresignedUrlService {
 
     private static final String BUCKET = "alumni-media-service-s3-bucket";
-
+    private final Map<String, PresignedUrlInfo> cache = new ConcurrentHashMap<>();
     @ConfigProperty(name = "quarkus.s3.aws.region")
     String region;
-
     @ConfigProperty(name = "quarkus.s3.aws.credentials.static-provider.access-key-id")
     String accessKey;
-
     @ConfigProperty(name = "quarkus.s3.aws.credentials.static-provider.secret-access-key")
     String secretAccessKey;
-
     private S3Presigner presigner;
-
-    private final Map<String, PresignedUrlInfo> cache = new ConcurrentHashMap<>();
 
     @PostConstruct
     void init() {
@@ -55,32 +50,32 @@ public class PresignedUrlService {
         }
     }
 
-    public PresignedUrlInfo getPresignedUrl(String key){
-        PresignedUrlInfo cached = cache.get(key);
 
-        if(cached != null && !cached.isExpired()){
-            return new PresignedUrlInfo(key, cached.url(), cached.expireAt());
-        }
-
-        PresignedUrlInfo info = generatePresignedUrl(key);
-        cache.put(key, info);
-        return new PresignedUrlInfo(key, info.url(), info.expireAt());
+    public PresignedUrlInfo getPresignedUrl(String key) {
+        return cache.compute(key, (k, existing) -> {
+            if (existing != null && !existing.isExpired()) {
+                return existing;
+            }
+            return generatePresignedUrl(k);
+        });
     }
 
     public List<PresignedUrlInfo> getPresignedUrls(List<String> keys) {
         if (keys == null || keys.isEmpty()) {
             return Collections.emptyList();
         }
-        List<PresignedUrlInfo> responses = new ArrayList<>();
+
+        List<PresignedUrlInfo> responses = new ArrayList<>(keys.size());
+
         for (String key : keys) {
             responses.add(getPresignedUrl(key));
         }
+
         return responses;
     }
 
-
-
     private PresignedUrlInfo generatePresignedUrl(String key) {
+
         GetObjectRequest objectRequest = GetObjectRequest.builder()
                 .bucket(BUCKET)
                 .key(key)
@@ -94,8 +89,15 @@ public class PresignedUrlService {
                 .build();
 
         PresignedGetObjectRequest presigned = presigner.presignGetObject(presignRequest);
-        String url = presigned.url().toExternalForm();
-        Instant expiration = presigned.expiration();
-        return new PresignedUrlInfo(key, url, expiration);
+
+        return new PresignedUrlInfo(
+                key,
+                presigned.url().toExternalForm(),
+                presigned.expiration()
+        );
+    }
+
+    public Map<String, PresignedUrlInfo> getCache() {
+        return cache;
     }
 }

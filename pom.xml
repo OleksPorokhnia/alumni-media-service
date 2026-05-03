@@ -86,6 +86,10 @@
             <artifactId>quarkus-smallrye-jwt</artifactId>
             <version>3.34.6</version>
         </dependency>
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-scheduler</artifactId>
+        </dependency>
     </dependencies>
 
     <build>

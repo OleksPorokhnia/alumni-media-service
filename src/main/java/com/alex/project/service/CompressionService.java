@@ -2,11 +2,10 @@ package com.alex.project.service;
 
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
-import org.eclipse.microprofile.jwt.JsonWebToken;
-import software.amazon.awssdk.services.s3.S3Client;
 
 import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -20,33 +19,40 @@ public class CompressionService {
     @Inject
     ImageService imageService;
 
-    @Inject
-    JsonWebToken jwt;
+    public String compressFile(String oldKey) throws IOException, InterruptedException {
 
-    public void compressFile(String type) throws IOException, InterruptedException {
-        Path tempInput = Files.createTempFile("ffmpeg-in-", ".webp");
+        if (!oldKey.contains(".")) {
+            throw new IllegalArgumentException("Invalid key format");
+        }
+
+        String fileType = oldKey.substring(oldKey.lastIndexOf('.') + 1);
+
+        Path tempInput = Files.createTempFile("ffmpeg-in-", "." + fileType);
         Path tempOutput = Files.createTempFile("ffmpeg-out-", ".webp");
 
         try {
-            Files.copy(imageService.getPhoto(type + "/" + jwt.claim("userid") + ".webp"), tempInput, StandardCopyOption.REPLACE_EXISTING);
+            try (InputStream is = imageService.getPhoto(oldKey)) {
+                Files.copy(is, tempInput, StandardCopyOption.REPLACE_EXISTING);
+            }
 
             List<String> command = List.of(
                     "ffmpeg",
                     "-i", tempInput.toString(),
-                    "-q:v", String.valueOf(75),
+                    "-q:v", "75",
                     "-y", tempOutput.toString()
             );
 
             runCommand(command);
 
-            imageService.photoUpload(tempOutput, "image/webp", type);
-        }finally {
+            return imageService.photoUploadFinalization(tempOutput, oldKey);
+
+        } finally {
             Files.deleteIfExists(tempInput);
             Files.deleteIfExists(tempOutput);
         }
     }
 
-    private void runCommand(List<String> command) throws IOException, InterruptedException{
+    private void runCommand(List<String> command) throws IOException, InterruptedException {
         ProcessBuilder pb = new ProcessBuilder(command);
         pb.redirectErrorStream(true);
 
@@ -55,13 +61,14 @@ public class CompressionService {
         StringBuilder output = new StringBuilder();
         try (BufferedReader reader = new BufferedReader(
                 new InputStreamReader(process.getInputStream()))) {
+
             String line;
             while ((line = reader.readLine()) != null) {
                 output.append(line).append("\n");
             }
         }
 
-        boolean finished = process.waitFor(2, TimeUnit.MINUTES);
+        boolean finished = process.waitFor(1, TimeUnit.MINUTES);
         if (!finished) {
             process.destroyForcibly();
             throw new RuntimeException("FFmpeg timed out");
